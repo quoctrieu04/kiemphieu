@@ -1,0 +1,31 @@
+# Flutter/Dart/Pub
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Build outputs
+build/
+android/app/build/
+android/.gradle/
+android/build/
+ios/Pods/
+ios/.symlinks/
+macos/Pods/
+macos/Flutter/ephemeral/
+
+# Xcode
+*.xcworkspace/
+*.xcuserstate
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+
+# VS Code
+.vscode/
+
+# System
+.DS_Store
+Thumbs.db

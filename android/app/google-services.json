@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "368061195636",
+    "project_id": "kiemphieu-e30c8",
+    "storage_bucket": "kiemphieu-e30c8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:368061195636:android:94978648dcc34caafdf821",
+        "android_client_info": {
+          "package_name": "com.example.kiemphieu"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSgg-wrxXiS2pCyO0eLptJV_wghcP6s2I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
