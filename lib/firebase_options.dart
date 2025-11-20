@@ -83,7 +83,7 @@ class DefaultFirebaseOptions {
     appId: '1:368061195636:android:94978648dcc34caafdf821',
     messagingSenderId: '368061195636',
     projectId: 'kiemphieu-e30c8',
-    storageBucket: 'kiemphieu-e30c8.firebasestorage.app',
+    storageBucket: 'kiemphieu-e30c8.appspot.com',
   );
 
 }

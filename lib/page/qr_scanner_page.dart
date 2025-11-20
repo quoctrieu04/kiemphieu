@@ -5,8 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class QRScannerPage extends StatefulWidget {
-  final String mode;
-  const QRScannerPage({super.key, required this.mode});
+  final String mode; // phat | thu
+  final int batch;
+
+  const QRScannerPage({
+    super.key,
+    required this.mode,
+    required this.batch,
+  });
 
   @override
   State<QRScannerPage> createState() => _QRScannerPageState();
@@ -14,7 +20,15 @@ class QRScannerPage extends StatefulWidget {
 
 class _QRScannerPageState extends State<QRScannerPage> {
   final MobileScannerController _controller = MobileScannerController();
-  bool _canDetect = true;
+  bool _canScan = true;
+
+  List<String> scannedIDs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    loadLocalHistory();
+  }
 
   @override
   void dispose() {
@@ -22,85 +36,166 @@ class _QRScannerPageState extends State<QRScannerPage> {
     super.dispose();
   }
 
-  /// LƯU LOCAL (có thêm docId)
+  /// Load lịch sử local chỉ theo batch + mode hiện tại
+  Future<void> loadLocalHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList("qr_history") ?? [];
+
+    scannedIDs = list
+        .map((e) {
+          final obj = jsonDecode(e);
+          if (obj["batch"] == widget.batch && obj["mode"] == widget.mode) {
+            return obj["id"].toString();
+          }
+          return null;
+        })
+        .where((e) => e != null)
+        .map((e) => e!)
+        .toList();
+  }
+
   Future<void> saveHistoryLocal(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
-    final List<String> saved = prefs.getStringList("qr_history") ?? [];
+    final list = prefs.getStringList("qr_history") ?? [];
 
-    saved.add(jsonEncode(data)); // data có thêm docId từ Firebase
-    await prefs.setStringList("qr_history", saved);
+    list.add(jsonEncode(data));
+    await prefs.setStringList("qr_history", list);
   }
 
-  /// LƯU FIREBASE (và trả về docId)
-  Future<void> saveHistoryFirebase(Map<String, dynamic> data) async {
-    final doc = await FirebaseFirestore.instance.collection("qr_scans").add({
-      "type": data["type"],
-      "id": data["id"],
-      "mode": widget.mode,
-      "timestamp": FieldValue.serverTimestamp(),
-    });
-
-    // Gán docId vào data để lưu local
-    data["docId"] = doc.id;
-
-    print("🔥 Lưu lên Firebase thành công! docId = ${doc.id}");
-  }
-
-  Map<String, dynamic>? parseJsonSafe(String raw) {
+  Future<String?> saveHistoryFirebase(Map<String, dynamic> data) async {
     try {
-      final fixed = raw
-          .replaceAll("'", "\"")
-          .replaceAll("“", "\"")
-          .replaceAll("”", "\"")
-          .trim();
+      final doc = await FirebaseFirestore.instance.collection("qr_scans").add({
+        "type": data["type"],
+        "id": data["id"],
+        "mode": widget.mode,
+        "batch": widget.batch,
+        "timestamp": FieldValue.serverTimestamp(),
+      });
 
-      return jsonDecode(fixed);
+      return doc.id;
     } catch (e) {
-      print("JSON ERROR: $e");
+      print("🔥 FIREBASE ERROR: $e");
       return null;
     }
+  }
+
+  Map<String, dynamic>? parseJson(String raw) {
+    try {
+      return jsonDecode(
+        raw
+            .replaceAll("'", "\"")
+            .replaceAll("“", "\"")
+            .replaceAll("”", "\"")
+            .trim(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 🔥 Kiểm tra trong batch này ID đã phát chưa? đã thu chưa?
+  Future<Map<String, bool>> checkStatus(String id) async {
+    final snaps = await FirebaseFirestore.instance
+        .collection("qr_scans")
+        .where("batch", isEqualTo: widget.batch)
+        .where("id", isEqualTo: id)
+        .get();
+
+    bool daPhat = false;
+    bool daThu = false;
+
+    for (var d in snaps.docs) {
+      if (d["mode"] == "phat") daPhat = true;
+      if (d["mode"] == "thu") daThu = true;
+    }
+
+    return {"phat": daPhat, "thu": daThu};
+  }
+
+  /// 🔥 Xử lý khi quét QR
+  Future<void> handleScan(String raw) async {
+    if (!_canScan) return;
+
+    _canScan = false;
+    await Future.delayed(const Duration(milliseconds: 700));
+    _canScan = true;
+
+    final parsed = parseJson(raw);
+    if (parsed == null) {
+      showMsg("❌ QR không hợp lệ!");
+      return;
+    }
+
+    final id = parsed["id"].toString();
+
+    // 🔥 Chống trùng local
+    if (scannedIDs.contains(id)) {
+      showMsg("⚠ Mã $id đã quét rồi trong thiết bị!");
+      return;
+    }
+
+    // 🔥 Kiểm tra trạng thái trong batch (đã phát / đã thu)
+    final status = await checkStatus(id);
+    final daPhat = status["phat"]!;
+    final daThu = status["thu"]!;
+
+    // ==========================
+    // 🔥 MODE PHÁT
+    // ==========================
+    if (widget.mode == "phat") {
+      if (daPhat) {
+        showMsg("⚠ Mã $id đã tồn tại trong ĐỢT ${widget.batch}!");
+        return;
+      }
+    }
+
+    // ==========================
+    // 🔥 MODE THU
+    // ==========================
+    if (widget.mode == "thu") {
+      if (!daPhat) {
+        showMsg("❌ Mã $id chưa được PHÁT — không thể THU!");
+        return;
+      }
+      if (daThu) {
+        showMsg("⚠ Mã $id đã THU rồi!");
+        return;
+      }
+    }
+
+    // Lưu vào Firebase
+    final docId = await saveHistoryFirebase(parsed);
+    if (docId != null) parsed["docId"] = docId;
+
+    // Lưu local
+    parsed["batch"] = widget.batch;
+    parsed["mode"] = widget.mode;
+
+    await saveHistoryLocal(parsed);
+    scannedIDs.add(id);
+
+    showMsg(
+      "✔ ${widget.mode == "phat" ? "Đã PHÁT" : "Đã THU"} | ID: $id | Type: ${parsed["type"]} | Đợt: ${widget.batch}",
+    );
+  }
+
+  void showMsg(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Quét mã QR"),
-        centerTitle: true,
-      ),
-
+      appBar: AppBar(title: Text("Quét mã QR (${widget.mode.toUpperCase()})")),
       body: Stack(
         children: [
           MobileScanner(
             controller: _controller,
-            onDetect: (capture) async {
-              if (!_canDetect) return;
-              _canDetect = false;
-
+            onDetect: (capture) {
               final raw = capture.barcodes.first.rawValue;
-              if (raw == null) {
-                Navigator.pop(context, {"error": true});
-                return;
-              }
-
-              final parsed = parseJsonSafe(raw);
-              if (parsed == null) {
-                Navigator.pop(context, {"error": true});
-                return;
-              }
-
-              // LƯU FIREBASE TRƯỚC để lấy docId
-              try {
-                await saveHistoryFirebase(parsed);
-              } catch (e) {
-                print("Firebase ERROR: $e");
-              }
-
-              // Sau đó lưu local (đã có docId)
-              await saveHistoryLocal(parsed);
-
-              if (!mounted) return;
-              Navigator.pop(context, parsed);
+              if (raw != null) handleScan(raw);
             },
           ),
 
@@ -128,7 +223,6 @@ class _QRScannerPageState extends State<QRScannerPage> {
                   child: const Icon(Icons.flash_on, color: Colors.white),
                   onPressed: () => _controller.toggleTorch(),
                 ),
-
                 FloatingActionButton(
                   heroTag: "switch",
                   backgroundColor: Colors.black54,

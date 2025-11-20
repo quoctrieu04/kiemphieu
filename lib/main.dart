@@ -4,11 +4,11 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'page/home_page.dart';
 import 'page/history_page.dart';
+import 'page/batch_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 🔥 Khởi tạo Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -29,6 +29,11 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const MainNavigation(),
+
+      // ⭐ ROUTES
+      routes: {
+        "/batch": (context) => const BatchPage(),
+      },
     );
   }
 }
@@ -43,7 +48,6 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
 
-  // ⭐ Danh sách các trang
   final List<Widget> _pages = const [
     HomePage(),
     HistoryPage(),
@@ -82,7 +86,6 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 }
 
-// ⭐ TRANG CÀI ĐẶT TẠM THỜI
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 

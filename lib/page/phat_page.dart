@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'qr_scanner_page.dart';
 import 'group_list_page.dart';
+import 'batch_page.dart';
 
 class PhatPage extends StatefulWidget {
-  const PhatPage({super.key});
+  final int? selectedBatch;
+
+  const PhatPage({super.key, this.selectedBatch});
 
   @override
   State<PhatPage> createState() => _PhatPageState();
@@ -12,185 +17,190 @@ class PhatPage extends StatefulWidget {
 
 class _PhatPageState extends State<PhatPage> {
   int t1 = 0, t2 = 0, t3 = 0, t4 = 0;
+  int currentBatch = 0;
 
-  final TextEditingController groupController =
-      TextEditingController(text: "10");
+  List<Map<String, dynamic>> type1 = [];
+  List<Map<String, dynamic>> type2 = [];
+  List<Map<String, dynamic>> type3 = [];
+  List<Map<String, dynamic>> type4 = [];
 
-  // NHẬP SỐ LƯỢNG MỖI TYPE TRONG 1 NHÓM
-  final TextEditingController t1Slot = TextEditingController(text: "1");
-  final TextEditingController t2Slot = TextEditingController(text: "1");
-  final TextEditingController t3Slot = TextEditingController(text: "1");
-  final TextEditingController t4Slot = TextEditingController(text: "1");
+  bool _mounted = true;
 
-  int goalGroups = 10;
+  @override
+  void initState() {
+    super.initState();
+    loadBatch();
+  }
+
+  @override
+  void dispose() {
+    _mounted = false;
+    super.dispose();
+  }
+
+  void safeSetState(VoidCallback fn) {
+    if (_mounted && mounted) setState(fn);
+  }
+
+  Future<void> loadBatch() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (widget.selectedBatch != null) {
+      currentBatch = widget.selectedBatch!;
+    } else {
+      currentBatch = prefs.getInt("current_batch") ?? 0;
+    }
+
+    await loadData();
+  }
+
+  Future<void> newBatch() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    currentBatch++;
+    await prefs.setInt("current_batch", currentBatch);
+
+    t1 = t2 = t3 = t4 = 0;
+    type1.clear();
+    type2.clear();
+    type3.clear();
+    type4.clear();
+
+    safeSetState(() {});
+  }
 
   Future<void> loadData() async {
-    final data = await FirebaseFirestore.instance
+    final snaps = await FirebaseFirestore.instance
         .collection("qr_scans")
         .where("mode", isEqualTo: "phat")
+        .where("batch", isEqualTo: currentBatch)
         .get();
 
     t1 = t2 = t3 = t4 = 0;
+    type1.clear();
+    type2.clear();
+    type3.clear();
+    type4.clear();
 
-    for (var doc in data.docs) {
+    for (var doc in snaps.docs) {
+      Map<String, dynamic> it = {"id": doc["id"]};
+
       switch (doc["type"]) {
         case 1:
+          type1.add(it);
           t1++;
           break;
         case 2:
+          type2.add(it);
           t2++;
           break;
         case 3:
+          type3.add(it);
           t3++;
           break;
         case 4:
+          type4.add(it);
           t4++;
           break;
       }
     }
 
-    setState(() {});
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    loadData();
+    safeSetState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
-    goalGroups = int.tryParse(groupController.text) ?? 0;
 
-    // SLOT MỖI TYPE TRONG NHÓM
-    int s1 = int.tryParse(t1Slot.text) ?? 0;
-    int s2 = int.tryParse(t2Slot.text) ?? 0;
-    int s3 = int.tryParse(t3Slot.text) ?? 0;
-    int s4 = int.tryParse(t4Slot.text) ?? 0;
-
-    // TỔNG NGƯỜI TRONG 1 NHÓM
-    int peoplePerGroup = s1 + s2 + s3 + s4;
-
-    // TỔNG PHIẾU ĐÃ QUÉT
+    // ====== TÍNH SỐ NHÓM ĐỦ ======
+    int validGroups = [t1, t2, t3, t4].reduce((a, b) => a < b ? a : b);
     int total = t1 + t2 + t3 + t4;
 
-    // ================================
-    //  🔥 TÍNH SỐ NHÓM ĐỦ THEO DỮ LIỆU
-    // ================================
+    // ====== TÍNH PHIẾU CẦN THÊM ĐỂ CÓ NHÓM TIẾP THEO ======
+    int nextGroup = validGroups + 1;
 
-    int currentGroups = 999;
+    int need1 = nextGroup - t1;
+    int need2 = nextGroup - t2;
+    int need3 = nextGroup - t3;
+    int need4 = nextGroup - t4;
 
-    List<List<int>> pairs = [
-      [t1, s1],
-      [t2, s2],
-      [t3, s3],
-      [t4, s4],
-    ];
+    need1 = need1 < 0 ? 0 : need1;
+    need2 = need2 < 0 ? 0 : need2;
+    need3 = need3 < 0 ? 0 : need3;
+    need4 = need4 < 0 ? 0 : need4;
 
-    for (var p in pairs) {
-      int have = p[0];
-      int need = p[1];
+    List<String> suggestions = [];
+    if (need1 > 0) suggestions.add("• Thiếu $need1 phiếu loại 1");
+    if (need2 > 0) suggestions.add("• Thiếu $need2 phiếu loại 2");
+    if (need3 > 0) suggestions.add("• Thiếu $need3 phiếu loại 3");
+    if (need4 > 0) suggestions.add("• Thiếu $need4 phiếu loại 4");
 
-      if (need == 0) continue; // type này không yêu cầu
+    String suggestionText =
+        suggestions.isEmpty ? "✔ Đã đủ để lập nhóm tiếp theo!" : suggestions.join("\n");
 
-      int canMake = have ~/ need; // SỐ NHÓM TỐI ĐA CHO TYPE NÀY
-
-      if (canMake < currentGroups) {
-        currentGroups = canMake;
-      }
-    }
-
-    if (currentGroups == 999) currentGroups = 0;
-
-    // ================================
-    // 🔥 TÍNH PHIẾU CẦN & PHIẾU THIẾU
-    // ================================
-
-    int need1 = goalGroups * s1;
-    int need2 = goalGroups * s2;
-    int need3 = goalGroups * s3;
-    int need4 = goalGroups * s4;
-
-    int missing1 = (need1 - t1).clamp(0, 999);
-    int missing2 = (need2 - t2).clamp(0, 999);
-    int missing3 = (need3 - t3).clamp(0, 999);
-    int missing4 = (need4 - t4).clamp(0, 999);
-
+    // ===========================================================
     return Scaffold(
-      appBar: AppBar(title: const Text("Phát phiếu")),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(12),
-        child: Column(
+      appBar: AppBar(
+        title: Text("Phát phiếu (Đợt $currentBatch)"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.list),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const BatchPage()),
+              ).then((_) => loadBatch());
+            },
+          ),
+        ],
+      ),
+
+      body: RefreshIndicator(
+        onRefresh: loadData,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
           children: [
-            // NHẬP SỐ NHÓM
-            TextField(
-              controller: groupController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: "Số nhóm muốn chia",
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
+            _box("Đợt phát hiện tại:", "$currentBatch"),
+            const SizedBox(height: 15),
 
-            const SizedBox(height: 20),
+            _box("Số phiếu loại:", "1 - $t1\n2 - $t2\n3 - $t3\n4 - $t4"),
+            _box("Tổng phiếu:", "$total"),
+            _box("Số nhóm đủ (4 loại):", "$validGroups"),
 
-            // CẤU TRÚC 1 NHÓM
+            // ====== BOX MỚI: SỐ PHIẾU CẦN THÊM ======
             Container(
               padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 12),
+              width: double.infinity,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.blueGrey),
+                border: Border.all(color: Colors.orange),
+                color: Colors.orange.withOpacity(0.08),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Số lượng từng type trong 1 nhóm",
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
+                  Text(
+                    "Cần thêm để đủ nhóm ${validGroups + 1}:",
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
 
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: t1Slot,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: "Type 1"),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: t2Slot,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: "Type 2"),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    "Type 1: $need1\n"
+                    "Type 2: $need2\n"
+                    "Type 3: $need3\n"
+                    "Type 4: $need4",
+                    style: const TextStyle(fontSize: 15),
                   ),
 
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: t3Slot,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: "Type 3"),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: t4Slot,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(labelText: "Type 4"),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 10),
+
+                  Text(
+                    suggestionText,
+                    style: TextStyle(
+                      color: suggestions.isEmpty ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -198,18 +208,26 @@ class _PhatPageState extends State<PhatPage> {
 
             const SizedBox(height: 20),
 
-            _box("Số loại phiếu đã phát:", "1 - $t1\n2 - $t2\n3 - $t3\n4 - $t4"),
-
-            _box("Tổng người / nhóm:", "$peoplePerGroup"),
-
-            _box("Số nhóm đủ theo dữ liệu:", "$currentGroups"),
-
-            _box(
-              "Thiếu phiếu:",
-              "Type 1: $missing1 / $need1\n"
-              "Type 2: $missing2 / $need2\n"
-              "Type 3: $missing3 / $need3\n"
-              "Type 4: $missing4 / $need4",
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GroupListPage(
+                      numGroups: validGroups,
+                      type1: type1,
+                      type2: type2,
+                      type3: type3,
+                      type4: type4,
+                    ),
+                  ),
+                );
+              },
+              child: const Text(
+                "Xem danh sách nhóm",
+                style: TextStyle(color: Colors.white),
+              ),
             ),
 
             const SizedBox(height: 20),
@@ -219,7 +237,9 @@ class _PhatPageState extends State<PhatPage> {
                 await Navigator.push(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => const QRScannerPage(mode: "phat")),
+                    builder: (_) =>
+                        QRScannerPage(mode: "phat", batch: currentBatch),
+                  ),
                 );
                 loadData();
               },
@@ -227,58 +247,6 @@ class _PhatPageState extends State<PhatPage> {
             ),
 
             const SizedBox(height: 12),
-
-            // Xem danh sách nhóm
-            ElevatedButton(
-              onPressed: () async {
-                final numGroups = int.tryParse(groupController.text) ?? 0;
-
-                final data = await FirebaseFirestore.instance
-                    .collection("qr_scans")
-                    .where("mode", isEqualTo: "phat")
-                    .get();
-
-                List<Map<String, dynamic>> type1 = [];
-                List<Map<String, dynamic>> type2 = [];
-                List<Map<String, dynamic>> type3 = [];
-                List<Map<String, dynamic>> type4 = [];
-
-                for (var d in data.docs) {
-                  switch (d["type"]) {
-                    case 1:
-                      type1.add({"id": d["id"]});
-                      break;
-                    case 2:
-                      type2.add({"id": d["id"]});
-                      break;
-                    case 3:
-                      type3.add({"id": d["id"]});
-                      break;
-                    case 4:
-                      type4.add({"id": d["id"]});
-                      break;
-                  }
-                }
-
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => GroupListPage(
-                      numGroups: numGroups,
-                      type1: type1,
-                      type2: type2,
-                      type3: type3,
-                      type4: type4,
-                      slot1: s1,
-                      slot2: s2,
-                      slot3: s3,
-                      slot4: s4,
-                    ),
-                  ),
-                );
-              },
-              child: const Text("Xem danh sách nhóm"),
-            ),
           ],
         ),
       ),
